@@ -488,8 +488,12 @@
             solvedCount: 0,
             soundEnabled: true,
             currentStep: 1,
-            question: null
+            question: null,
+            questionCompleted: false,
+            feedback: null
         };
+        let currentScreen = 'menu';
+        let activeLabTab = 'area';
 
         // تبدیل اعداد انگلیسی به فارسی برای نمایش زیباتر متون
         function toPersianDigits(num) {
@@ -803,6 +807,7 @@
         // ==========================================
         function startGame(mode) {
             playSound('click');
+            currentScreen = 'game';
             state.mode = mode;
             state.score = 0;
             state.level = 1;
@@ -826,6 +831,7 @@
 
         function returnToMenu() {
             playSound('click');
+            currentScreen = 'menu';
             document.getElementById('game-screen').classList.add('hidden');
             document.getElementById('gameover-screen').classList.add('hidden');
             document.getElementById('lab-screen').classList.add('hidden');
@@ -835,19 +841,21 @@
         // ==========================================
         // بخش آزمایشگاه اکتشاف (یادگیری شهودی و تعاملی)
         // ==========================================
-        function openLab() {
-            playSound('click');
+        function openLab(playClick = true) {
+            if (playClick) playSound('click');
+            currentScreen = 'lab';
             document.getElementById('start-screen').classList.add('hidden');
             document.getElementById('game-screen').classList.add('hidden');
             document.getElementById('gameover-screen').classList.add('hidden');
             document.getElementById('lab-screen').classList.remove('hidden');
-            switchLabTab('area');
+            switchLabTab('area', playClick);
             updateAreaLab();
             updateSimpLab();
         }
 
-        function switchLabTab(tab) {
-            playSound('click');
+        function switchLabTab(tab, playClick = true) {
+            if (playClick) playSound('click');
+            activeLabTab = tab;
             const areaPanel = document.getElementById('lab-area-panel');
             const simpPanel = document.getElementById('lab-simp-panel');
             const tabAreaBtn = document.getElementById('lab-tab-area');
@@ -1043,9 +1051,11 @@
         // ==========================================
         // بارگذاری سوال و ساخت گام‌های تعاملی
         // ==========================================
-        function loadNewQuestion() {
-            state.question = generateQuestion();
+        function loadNewQuestion(question = null, shouldFocus = true) {
+            state.question = question || generateQuestion();
             state.currentStep = 1;
+            state.questionCompleted = false;
+            state.feedback = null;
             const q = state.question;
 
             hideFeedback();
@@ -1090,7 +1100,7 @@
                         </div>
                     </div>
                 `;
-                setTimeout(() => document.getElementById('inp-s-num')?.focus(), 100);
+                if (shouldFocus) setTimeout(() => document.getElementById('inp-s-num')?.focus(), 100);
 
             } else {
                 // حالت ضرب اعداد مخلوط
@@ -1142,12 +1152,12 @@
                         </div>
                     </div>
                 `;
-                setTimeout(() => document.getElementById('inp-1-num')?.focus(), 100);
+                if (shouldFocus) setTimeout(() => document.getElementById('inp-1-num')?.focus(), 100);
             }
         }
 
         // اضافه کردن گام ۲ (ضرب صورت‌ها و مخرج‌ها)
-        function appendStep2() {
+        function appendStep2(shouldFocus = true) {
             const q = state.question;
             const stepsEl = document.getElementById('steps-container');
             const step2HTML = `
@@ -1172,11 +1182,11 @@
                 </div>
             `;
             stepsEl.insertAdjacentHTML('beforeend', step2HTML);
-            setTimeout(() => document.getElementById('inp-raw-num')?.focus(), 100);
+            if (shouldFocus) setTimeout(() => document.getElementById('inp-raw-num')?.focus(), 100);
         }
 
         // اضافه کردن گام ۳ (ساده‌سازی و تبدیل به عدد مخلوط نهایی)
-        function appendStep3() {
+        function appendStep3(shouldFocus = true) {
             const q = state.question;
             const stepsEl = document.getElementById('steps-container');
             
@@ -1238,7 +1248,7 @@
                 </div>
             `;
             stepsEl.insertAdjacentHTML('beforeend', step3HTML);
-            setTimeout(() => {
+            if (shouldFocus) setTimeout(() => {
                 const firstInp = document.getElementById('inp-fin-whole') || document.getElementById('inp-fin-num');
                 firstInp?.focus();
             }, 100);
@@ -1363,6 +1373,7 @@
 
         function completeQuestion(message) {
             playSound('win');
+            state.questionCompleted = true;
             state.score += 10 * state.level;
             state.solvedCount += 1;
             if (state.solvedCount % 3 === 0) {
@@ -1390,6 +1401,7 @@
 
             if (state.lives <= 0) {
                 setTimeout(() => {
+                    currentScreen = 'gameover';
                     document.getElementById('game-screen').classList.add('hidden');
                     document.getElementById('gameover-screen').classList.remove('hidden');
                     document.getElementById('final-score').textContent = toPersianDigits(state.score);
@@ -1426,7 +1438,8 @@
             loadNewQuestion();
         }
 
-        function showFeedback(type, htmlText) {
+        function showFeedback(type, htmlText, plainText = false) {
+            state.feedback = { type, text: htmlText };
             const box = document.getElementById('feedback-box');
             const icon = document.getElementById('feedback-icon');
             const text = document.getElementById('feedback-text');
@@ -1447,13 +1460,314 @@
                 icon.textContent = '💡';
             }
 
-            text.innerHTML = htmlText;
+            if (plainText) text.textContent = htmlText.replace(/<[^>]*>/g, '');
+            else text.innerHTML = htmlText;
             box.classList.remove('hidden');
         }
 
         function hideFeedback() {
+            state.feedback = null;
             document.getElementById('feedback-box').classList.add('hidden');
         }
+
+        function normalizeQuestion(question, mode) {
+            if (!question || typeof question !== 'object') return null;
+            const isIntegerInRange = (value, min, max) =>
+                Number.isInteger(value) && value >= min && value <= max;
+
+            if (question.type === 'simplify' && mode !== 'mixed') {
+                if (!isIntegerInRange(question.num, 1, 100000) ||
+                    !isIntegerInRange(question.den, 2, 100000) ||
+                    !isIntegerInRange(question.simpNum, 1, question.num) ||
+                    !isIntegerInRange(question.simpDen, 2, question.den) ||
+                    !isIntegerInRange(question.factor, 2, 7) ||
+                    question.num !== question.simpNum * question.factor ||
+                    question.den !== question.simpDen * question.factor ||
+                    gcd(question.simpNum, question.simpDen) !== 1) {
+                    return null;
+                }
+                return {
+                    type: 'simplify',
+                    num: question.num,
+                    den: question.den,
+                    simpNum: question.simpNum,
+                    simpDen: question.simpDen,
+                    factor: question.factor
+                };
+            }
+
+            if (question.type !== 'mixed' || mode === 'simplify') return null;
+            const integerFields = [
+                'w1', 'n1', 'd1', 'w2', 'n2', 'd2',
+                'impNum1', 'impDen1', 'impNum2', 'impDen2',
+                'rawNum', 'rawDen', 'commonDiv', 'simpNum', 'simpDen',
+                'finalWhole', 'finalRemNum'
+            ];
+            if (!integerFields.every(key => Number.isSafeInteger(question[key])) ||
+                !isIntegerInRange(question.w1, 1, 3) ||
+                !isIntegerInRange(question.d1, 2, 6) ||
+                !isIntegerInRange(question.n1, 1, question.d1 - 1) ||
+                !isIntegerInRange(question.w2, 0, 2) ||
+                !isIntegerInRange(question.d2, 2, 6) ||
+                !isIntegerInRange(question.n2, 1, question.d2 - 1) ||
+                question.impNum1 !== question.w1 * question.d1 + question.n1 ||
+                question.impDen1 !== question.d1 ||
+                question.impNum2 !== question.w2 * question.d2 + question.n2 ||
+                question.impDen2 !== question.d2 ||
+                question.rawNum !== question.impNum1 * question.impNum2 ||
+                question.rawDen !== question.impDen1 * question.impDen2 ||
+                question.commonDiv !== gcd(question.rawNum, question.rawDen) ||
+                question.simpNum !== question.rawNum / question.commonDiv ||
+                question.simpDen !== question.rawDen / question.commonDiv ||
+                question.finalWhole !== Math.floor(question.simpNum / question.simpDen) ||
+                question.finalRemNum !== question.simpNum % question.simpDen) {
+                return null;
+            }
+            const normalized = { type: 'mixed' };
+            integerFields.forEach(key => normalized[key] = question[key]);
+            return normalized;
+        }
+
+        function normalizeGameData(data) {
+            if (!data || typeof data !== 'object' || data.schemaVersion !== 1 ||
+                !data.settings || typeof data.settings.soundEnabled !== 'boolean' ||
+                !data.progress || !['menu', 'lab', 'game', 'gameover'].includes(data.progress.screen) ||
+                !data.progress.lab || typeof data.progress.lab !== 'object' ||
+                !['area', 'simp'].includes(data.progress.lab.activeTab)) {
+                return null;
+            }
+
+            const lab = data.progress.lab;
+            const labValues = {
+                w1: [lab.w1, 1, 3],
+                n1: [lab.n1, 0, 3],
+                d1: [lab.d1, 2, 6],
+                w2: [lab.w2, 1, 3],
+                n2: [lab.n2, 0, 3],
+                d2: [lab.d2, 2, 6],
+                simpNum: [lab.simpNum, 1, 5],
+                simpDen: [lab.simpDen, 2, 6],
+                simpFactor: [lab.simpFactor, 1, 5]
+            };
+            if (!Object.values(labValues).every(([value, min, max]) =>
+                Number.isInteger(value) && value >= min && value <= max) ||
+                lab.n1 >= lab.d1 || lab.n2 >= lab.d2 || lab.simpNum >= lab.simpDen) {
+                return null;
+            }
+
+            let gameState = null;
+            if (data.progress.screen === 'game' || data.progress.screen === 'gameover') {
+                const saved = data.progress.gameState;
+                if (!saved || typeof saved !== 'object' ||
+                    !['simplify', 'mixed', 'challenge'].includes(saved.mode) ||
+                    !Number.isInteger(saved.score) || saved.score < 0 || saved.score > 1000000000 ||
+                    !Number.isInteger(saved.level) || saved.level < 1 || saved.level > 1000000 ||
+                    !Number.isInteger(saved.lives) || saved.lives < 0 || saved.lives > 3 ||
+                    !Number.isInteger(saved.solvedCount) || saved.solvedCount < 0 || saved.solvedCount > 1000000 ||
+                    !Number.isInteger(saved.currentStep) || saved.currentStep < 1 || saved.currentStep > 3 ||
+                    typeof saved.questionCompleted !== 'boolean' ||
+                    !saved.inputs || typeof saved.inputs !== 'object' ||
+                    (saved.feedback !== null && (!saved.feedback || typeof saved.feedback !== 'object' ||
+                        !['success', 'error', 'warning', 'info'].includes(saved.feedback.type) ||
+                        typeof saved.feedback.text !== 'string' || saved.feedback.text.length > 2000))) {
+                    return null;
+                }
+
+                const question = normalizeQuestion(saved.question, saved.mode);
+                if (!question ||
+                    (question.type === 'simplify' && saved.currentStep !== 1) ||
+                    (saved.questionCompleted && (!saved.feedback || saved.feedback.type !== 'success')) ||
+                    (saved.mode === 'simplify' && question.type !== 'simplify') ||
+                    (saved.mode === 'mixed' && question.type !== 'mixed') ||
+                    (saved.currentStep === 3 && question.type !== 'mixed') ||
+                    (saved.currentStep === 3 && question.commonDiv === 1 && question.simpNum < question.simpDen) ||
+                    (data.progress.screen === 'gameover' && saved.lives !== 0)) {
+                    return null;
+                }
+
+                const validInputIds = [
+                    'inp-s-num', 'inp-s-den', 'inp-1-num', 'inp-1-den',
+                    'inp-2-num', 'inp-2-den', 'inp-raw-num', 'inp-raw-den',
+                    'inp-fin-whole', 'inp-fin-num', 'inp-fin-den'
+                ];
+                const inputs = {};
+                for (const [id, input] of Object.entries(saved.inputs)) {
+                    if (!validInputIds.includes(id) || !input || typeof input !== 'object' ||
+                        typeof input.value !== 'string' || input.value.length > 20 ||
+                        !/^-?\d*(?:\.\d*)?$/.test(input.value) ||
+                        typeof input.disabled !== 'boolean') {
+                        return null;
+                    }
+                    inputs[id] = { value: input.value, disabled: input.disabled };
+                }
+
+                gameState = {
+                    mode: saved.mode,
+                    score: saved.score,
+                    level: saved.level,
+                    lives: saved.lives,
+                    solvedCount: saved.solvedCount,
+                    currentStep: saved.currentStep,
+                    question,
+                    questionCompleted: saved.questionCompleted,
+                    feedback: saved.feedback
+                        ? { type: saved.feedback.type, text: saved.feedback.text }
+                        : null,
+                    inputs
+                };
+            } else if (data.progress.gameState !== null) {
+                return null;
+            }
+
+            return {
+                soundEnabled: data.settings.soundEnabled,
+                screen: data.progress.screen,
+                activeLabTab: lab.activeTab,
+                lab: {
+                    w1: lab.w1, n1: lab.n1, d1: lab.d1,
+                    w2: lab.w2, n2: lab.n2, d2: lab.d2,
+                    simpNum: lab.simpNum, simpDen: lab.simpDen, simpFactor: lab.simpFactor
+                },
+                gameState
+            };
+        }
+
+        function saveGameData() {
+            const savedScreen = currentScreen === 'game' && state.lives === 0
+                ? 'gameover'
+                : currentScreen;
+            const screenInputs = {};
+            if (savedScreen === 'game') {
+                document.querySelectorAll('#steps-container input').forEach(input => {
+                    screenInputs[input.id] = { value: input.value, disabled: input.disabled };
+                });
+            }
+            return {
+                schemaVersion: 1,
+                settings: { soundEnabled: state.soundEnabled },
+                progress: {
+                    screen: savedScreen,
+                    gameState: savedScreen === 'game' || savedScreen === 'gameover'
+                        ? {
+                            mode: state.mode,
+                            score: state.score,
+                            level: state.level,
+                            lives: state.lives,
+                            solvedCount: state.solvedCount,
+                            currentStep: state.currentStep,
+                            question: state.question ? { ...state.question } : null,
+                            questionCompleted: state.questionCompleted,
+                            feedback: state.feedback ? { ...state.feedback } : null,
+                            inputs: screenInputs
+                        }
+                        : null,
+                    lab: {
+                        activeTab: activeLabTab,
+                        w1: Number(document.getElementById('lab-w1').value),
+                        n1: Number(document.getElementById('lab-n1').value),
+                        d1: Number(document.getElementById('lab-d1').value),
+                        w2: Number(document.getElementById('lab-w2').value),
+                        n2: Number(document.getElementById('lab-n2').value),
+                        d2: Number(document.getElementById('lab-d2').value),
+                        simpNum: Number(document.getElementById('lab-s-num').value),
+                        simpDen: Number(document.getElementById('lab-s-den').value),
+                        simpFactor: Number(document.getElementById('lab-s-fac').value)
+                    }
+                }
+            };
+        }
+
+        function loadGameData(data) {
+            const saved = normalizeGameData(data);
+            if (!saved) {
+                console.warn('Ignoring invalid saved game data.');
+                return;
+            }
+
+            currentScreen = saved.screen;
+            activeLabTab = saved.activeLabTab;
+            state.soundEnabled = saved.soundEnabled;
+            document.getElementById('sound-btn').textContent = state.soundEnabled ? '🔊' : '🔇';
+            document.getElementById('tutorial-modal').classList.add('hidden');
+            ['start-screen', 'lab-screen', 'game-screen', 'gameover-screen'].forEach(id =>
+                document.getElementById(id).classList.add('hidden'));
+
+            if (saved.gameState) {
+                Object.assign(state, saved.gameState);
+            } else {
+                Object.assign(state, {
+                    mode: 'mixed', score: 0, level: 1, lives: 3, solvedCount: 0,
+                    currentStep: 1, question: null, questionCompleted: false, feedback: null
+                });
+            }
+
+            updateHUD();
+            if (saved.screen === 'menu') {
+                document.getElementById('start-screen').classList.remove('hidden');
+                return;
+            }
+
+            if (saved.screen === 'lab') {
+                openLab(false);
+                document.getElementById('lab-w1').value = saved.lab.w1;
+                document.getElementById('lab-n1').value = saved.lab.n1;
+                document.getElementById('lab-d1').value = saved.lab.d1;
+                document.getElementById('lab-w2').value = saved.lab.w2;
+                document.getElementById('lab-n2').value = saved.lab.n2;
+                document.getElementById('lab-d2').value = saved.lab.d2;
+                document.getElementById('lab-s-num').value = saved.lab.simpNum;
+                document.getElementById('lab-s-den').value = saved.lab.simpDen;
+                document.getElementById('lab-s-fac').value = saved.lab.simpFactor;
+                updateAreaLab();
+                updateSimpLab();
+                switchLabTab(saved.activeLabTab, false);
+                return;
+            }
+
+            if (saved.screen === 'gameover') {
+                document.getElementById('final-score').textContent = toPersianDigits(state.score);
+                document.getElementById('final-solved').textContent = toPersianDigits(state.solvedCount);
+                document.getElementById('gameover-screen').classList.remove('hidden');
+                return;
+            }
+
+            const savedStep = state.currentStep;
+            const savedCompleted = state.questionCompleted;
+            const savedFeedback = state.feedback;
+            const savedInputs = state.inputs;
+            delete state.inputs;
+            loadNewQuestion(state.question, false);
+            if (state.question.type === 'mixed' && savedStep >= 2) appendStep2(false);
+            if (state.question.type === 'mixed' && savedStep >= 3) appendStep3(false);
+            state.currentStep = savedStep;
+            state.questionCompleted = savedCompleted;
+            state.feedback = savedFeedback;
+
+            if (state.question.type === 'mixed' && savedStep >= 2) disableInputs('step-1');
+            if (state.question.type === 'mixed' && savedStep >= 3) disableInputs('step-2');
+            if (savedCompleted) disableInputs(`step-${savedStep}`);
+            Object.entries(savedInputs).forEach(([id, input]) => {
+                const element = document.getElementById(id);
+                if (!element) return;
+                element.value = input.value;
+                element.disabled = input.disabled;
+            });
+
+            const modeTitles = {
+                simplify: '✂️ تمرین ساده‌سازی کسرها',
+                mixed: '✖️ آموزش ضرب اعداد مخلوط',
+                challenge: '🏆 چالش ترکیبی'
+            };
+            document.getElementById('mode-badge').textContent = modeTitles[state.mode];
+            document.getElementById('game-screen').classList.remove('hidden');
+            document.getElementById('check-btn').classList.toggle('hidden', savedCompleted);
+            document.getElementById('hint-btn').classList.toggle('hidden', savedCompleted);
+            document.getElementById('next-btn').classList.toggle('hidden', !savedCompleted);
+            if (savedFeedback) showFeedback(savedFeedback.type, savedFeedback.text, true);
+        }
+
+        window.saveGameData = saveGameData;
+        window.loadGameData = loadGameData;
 
         // پشتیبانی از کلید Enter برای ثبت سریع پاسخ
         document.addEventListener('keydown', function(e) {
